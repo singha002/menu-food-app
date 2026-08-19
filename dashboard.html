@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="th" ng-app="DashboardApp">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบจัดการร้านและห้องครัว - ร้านกินยาร์ด ก๋วยเตี๋ยวเรือ</title>
+  <meta name="description" content="Dashboard จัดการออเดอร์ร้านอาหารและห้องครัวแบบเรียลไทม์ เชื่อมต่อ Google Sheets">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="css/dashboard.css">
+
+  <!-- AngularJS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.8.2/angular.min.js"></script>
+</head>
+<body ng-controller="DashboardCtrl">
+
+  <div class="dashboard-wrapper">
+
+    <!-- ============================================== -->
+    <!-- 1. Header Bar                                  -->
+    <!-- ============================================== -->
+    <header class="dash-header">
+      <div class="brand-section">
+        <img ng-src="{{ config.SHOP_LOGO }}" alt="โลโก้ร้าน" class="brand-logo">
+        <div>
+          <h1 class="brand-title">{{ config.SHOP_NAME }} - Kitchen Dashboard</h1>
+          <p class="brand-subtitle">ระบบรับออเดอร์และจัดการครัวแบบเรียลไทม์</p>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <!-- Live Clock -->
+        <div class="clock-badge">
+          <span>🕒</span>
+          <span>{{ currentTime }}</span>
+        </div>
+
+        <!-- Sync Indicator -->
+        <div class="sync-indicator">
+          <span class="sync-dot" ng-class="{'syncing': isSyncing}"></span>
+          <span>{{ isSyncing ? 'กำลังซิงค์...' : 'ออนไลน์' }}</span>
+        </div>
+
+        <!-- Sound Toggle Button -->
+        <button class="btn-ctrl" 
+                ng-class="{'sound-active': isSoundEnabled, 'sound-muted': !isSoundEnabled}"
+                ng-click="toggleSound()" 
+                id="btn-toggle-sound"
+                title="เปิด/ปิดเสียงแจ้งเตือนออเดอร์ใหม่">
+          <span>{{ isSoundEnabled ? '🔔 เสียงเตือน: เปิด' : '🔕 เสียงเตือน: ปิด' }}</span>
+        </button>
+
+        <!-- Refresh Button -->
+        <button class="btn-ctrl" ng-click="loadOrders(false)" id="btn-manual-refresh">
+          <span>🔄 รีเฟรช</span>
+        </button>
+
+        <!-- Link to Customer Ordering App -->
+        <a href="index.html" class="btn-ctrl" target="_blank" id="btn-open-customer-app">
+          <span>📱 หน้าสั่งอาหารลูกค้า</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- ============================================== -->
+    <!-- 2. Statistics Metrics Cards                   -->
+    <!-- ============================================== -->
+    <section class="stats-grid">
+      <!-- Pending Orders -->
+      <div class="stat-card">
+        <div class="stat-icon pending">⏳</div>
+        <div class="stat-info-box">
+          <span class="stat-label">รอรับออเดอร์</span>
+          <span class="stat-value">{{ getCountByStatus('Pending') }}</span>
+        </div>
+      </div>
+
+      <!-- Cooking Orders -->
+      <div class="stat-card">
+        <div class="stat-icon cooking">🍳</div>
+        <div class="stat-info-box">
+          <span class="stat-label">กำลังปรุงอาหาร</span>
+          <span class="stat-value">{{ getCountByStatus('Cooking') }}</span>
+        </div>
+      </div>
+
+      <!-- Served Orders -->
+      <div class="stat-card">
+        <div class="stat-icon served">🍜</div>
+        <div class="stat-info-box">
+          <span class="stat-label">เสิร์ฟแล้ว (รอเช็คบิล)</span>
+          <span class="stat-value">{{ getCountByStatus('Served') }}</span>
+        </div>
+      </div>
+
+      <!-- Active Tables -->
+      <div class="stat-card">
+        <div class="stat-icon tables">🍽️</div>
+        <div class="stat-info-box">
+          <span class="stat-label">โต๊ะที่กำลังรับประทาน</span>
+          <span class="stat-value">{{ getActiveTablesCount() }} โต๊ะ</span>
+        </div>
+      </div>
+
+      <!-- Total Sales Today -->
+      <div class="stat-card">
+        <div class="stat-icon sales">💰</div>
+        <div class="stat-info-box">
+          <span class="stat-label">ยอดขายรวมวันนี้</span>
+          <span class="stat-value">฿{{ getTotalSales() | number:0 }}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- 3. Navigation Tabs                            -->
+    <!-- ============================================== -->
+    <nav class="dash-tabs">
+      <button class="dash-tab-btn" 
+              ng-class="{'active': activeTab === 'kanban'}"
+              ng-click="setTab('kanban')"
+              id="tab-btn-kanban">
+        <span>📋</span>
+        <span>กระดานออเดอร์สด (Live Kanban)</span>
+      </button>
+
+      <button class="dash-tab-btn" 
+              ng-class="{'active': activeTab === 'stock'}"
+              ng-click="setTab('stock')"
+              id="tab-btn-stock">
+        <span>🍲</span>
+        <span>จัดการสต็อกเมนู (Stock In / Out)</span>
+      </button>
+
+      <button class="dash-tab-btn" 
+              ng-class="{'active': activeTab === 'history'}"
+              ng-click="setTab('history')"
+              id="tab-btn-history">
+        <span>📊</span>
+        <span>ประวัติออเดอร์ทั้งหมด</span>
+      </button>
+    </nav>
+
+    <!-- ============================================== -->
+    <!-- 4. Tab Content 1: Kanban Board                -->
+    <!-- ============================================== -->
+    <main class="kanban-board" ng-show="activeTab === 'kanban'">
+
+      <!-- Column 1: Pending (รอรับออเดอร์) -->
+      <div class="kanban-col col-pending">
+        <div class="kanban-col-header">
+          <div class="col-header-left">
+            <span>🟡 รอรับออเดอร์</span>
+          </div>
+          <span class="col-badge-count">{{ getCountByStatus('Pending') }}</span>
+        </div>
+
+        <div class="kanban-col-body">
+          <div class="order-card" 
+               ng-repeat="order in getOrdersByStatus('Pending')"
+               ng-class="{'is-new': order.order_id === lastNewOrderId}"
+               id="order-card-{{ order.order_id }}">
+            
+            <div class="order-card-top">
+              <span class="order-table-badge">{{ order.table_no }}</span>
+              <span class="order-time">{{ order.timestamp }}</span>
+            </div>
+
+            <div class="order-customer-info">
+              👤 <strong>{{ order.customer_name }}</strong> 
+              <span ng-if="order.customer_phone">({{ order.customer_phone }})</span>
+            </div>
+
+            <div class="order-items-list">
+              <div class="order-item-row" ng-repeat="item in order.items">
+                <div class="order-item-head">
+                  <span><span class="order-item-qty">{{ item.qty }}x</span> {{ item.name }}</span>
+                  <span>฿{{ item.subtotal || (item.price * item.qty) }}</span>
+                </div>
+                <div class="order-item-opts" ng-if="item.options">{{ item.options }}</div>
+              </div>
+            </div>
+
+            <div class="order-note-box" ng-if="order.note">
+              <strong>⚠️ หมายเหตุ:</strong> {{ order.note }}
+            </div>
+
+            <div class="order-card-footer">
+              <div class="order-total-price">฿{{ order.total_price }}</div>
+              <div class="order-actions">
+                <button class="btn-action btn-start" ng-click="updateOrderStatus(order, 'Cooking')" title="เริ่มปรุงอาหาร">
+                  <span>🔥 เริ่มปรุง</span>
+                </button>
+                <button class="btn-action btn-cancel" ng-click="updateOrderStatus(order, 'Cancelled')" title="ยกเลิกออเดอร์">
+                  <span>✕</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <div style="text-align: center; color: var(--text-muted); padding: 30px 10px;" ng-if="getCountByStatus('Pending') === 0">
+            <span>✨ ไม่มีออเดอร์รอดำเนินการ</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Column 2: Cooking (กำลังปรุง) -->
+      <div class="kanban-col col-cooking">
+        <div class="kanban-col-header">
+          <div class="col-header-left">
+            <span>🟠 กำลังปรุงอาหาร</span>
+          </div>
+          <span class="col-badge-count">{{ getCountByStatus('Cooking') }}</span>
+        </div>
+
+        <div class="kanban-col-body">
+          <div class="order-card" 
+               ng-repeat="order in getOrdersByStatus('Cooking')"
+               id="order-card-{{ order.order_id }}">
+            
+            <div class="order-card-top">
+              <span class="order-table-badge" style="background: var(--cooking-color);">{{ order.table_no }}</span>
+              <span class="order-time">{{ order.timestamp }}</span>
+            </div>
+
+            <div class="order-customer-info">
+              👤 <strong>{{ order.customer_name }}</strong>
+            </div>
+
+            <div class="order-items-list">
+              <div class="order-item-row" ng-repeat="item in order.items">
+                <div class="order-item-head">
+                  <span><span class="order-item-qty">{{ item.qty }}x</span> {{ item.name }}</span>
+                  <span>฿{{ item.subtotal || (item.price * item.qty) }}</span>
+                </div>
+                <div class="order-item-opts" ng-if="item.options">{{ item.options }}</div>
+              </div>
+            </div>
+
+            <div class="order-note-box" ng-if="order.note">
+              <strong>⚠️ หมายเหตุ:</strong> {{ order.note }}
+            </div>
+
+            <div class="order-card-footer">
+              <div class="order-total-price">฿{{ order.total_price }}</div>
+              <div class="order-actions">
+                <button class="btn-action btn-serve" ng-click="updateOrderStatus(order, 'Served')" title="เสิร์ฟอาหารเรียบร้อย">
+                  <span>🍜 เสิร์ฟแล้ว</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <div style="text-align: center; color: var(--text-muted); padding: 30px 10px;" ng-if="getCountByStatus('Cooking') === 0">
+            <span>🍳 ไม่มีออเดอร์ที่กำลังปรุง</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Column 3: Served (เสิร์ฟแล้ว / รอเช็คบิล) -->
+      <div class="kanban-col col-served">
+        <div class="kanban-col-header">
+          <div class="col-header-left">
+            <span>🟢 เสิร์ฟแล้ว (ทานอยู่)</span>
+          </div>
+          <span class="col-badge-count">{{ getCountByStatus('Served') }}</span>
+        </div>
+
+        <div class="kanban-col-body">
+          <div class="order-card" 
+               ng-repeat="order in getOrdersByStatus('Served')"
+               id="order-card-{{ order.order_id }}">
+            
+            <div class="order-card-top">
+              <span class="order-table-badge" style="background: var(--served-color);">{{ order.table_no }}</span>
+              <span class="order-time">{{ order.timestamp }}</span>
+            </div>
+
+            <div class="order-customer-info">
+              👤 <strong>{{ order.customer_name }}</strong>
+            </div>
+
+            <div class="order-items-list">
+              <div class="order-item-row" ng-repeat="item in order.items">
+                <div class="order-item-head">
+                  <span><span class="order-item-qty">{{ item.qty }}x</span> {{ item.name }}</span>
+                  <span>฿{{ item.subtotal || (item.price * item.qty) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="order-card-footer">
+              <div>
+                <div class="order-total-price">฿{{ order.total_price }}</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">สถานะ: {{ order.payment_status === 'Paid' ? 'ชำระแล้ว' : 'ยังไม่ชำระ' }}</div>
+              </div>
+              <div class="order-actions">
+                <button class="btn-action btn-pay" ng-click="updateOrderStatus(order, 'Completed', 'Paid')" title="เช็คบิลและปิดออเดอร์">
+                  <span>💰 ชำระเงินแล้ว</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <div style="text-align: center; color: var(--text-muted); padding: 30px 10px;" ng-if="getCountByStatus('Served') === 0">
+            <span>🍜 ไม่มีโต๊ะที่กำลังรับประทาน</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Column 4: Completed (เสร็จสิ้น / ชำระแล้ว) -->
+      <div class="kanban-col col-completed">
+        <div class="kanban-col-header">
+          <div class="col-header-left">
+            <span>⚪ เสร็จสิ้น</span>
+          </div>
+          <span class="col-badge-count">{{ getCountByStatus('Completed') }}</span>
+        </div>
+
+        <div class="kanban-col-body">
+          <div class="order-card" 
+               ng-repeat="order in getOrdersByStatus('Completed') | limitTo:10"
+               style="opacity: 0.75;"
+               id="order-card-{{ order.order_id }}">
+            
+            <div class="order-card-top">
+              <span class="order-table-badge" style="background: #475569;">{{ order.table_no }}</span>
+              <span class="order-time">{{ order.timestamp }}</span>
+            </div>
+
+            <div class="order-customer-info">
+              👤 {{ order.customer_name }} • {{ order.items.length }} รายการ
+            </div>
+
+            <div class="order-card-footer">
+              <div class="order-total-price" style="color: #cbd5e1;">฿{{ order.total_price }}</div>
+              <span style="font-size: 0.8rem; color: #4ade80;">✓ เสร็จสมบูรณ์</span>
+            </div>
+
+          </div>
+
+          <div style="text-align: center; color: var(--text-muted); padding: 30px 10px;" ng-if="getCountByStatus('Completed') === 0">
+            <span>ยังไม่มีรายการที่ปิดออเดอร์</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ============================================== -->
+    <!-- 5. Tab Content 2: Stock Management             -->
+    <!-- ============================================== -->
+    <section class="stock-table-card" ng-show="activeTab === 'stock'">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2 style="font-family: var(--font-heading); font-size: 1.15rem;">🍲 จัดการสถานะเมนูอาหาร (เปิด/ปิดสต็อก)</h2>
+        <span style="font-size: 0.85rem; color: var(--text-muted);">คลิกสวิตช์เพื่อเปิดหรือปิดการขายเมนูได้ทันที</span>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table class="stock-table">
+          <thead>
+            <tr>
+              <th>รหัส</th>
+              <th>เมนูอาหาร</th>
+              <th>หมวดหมู่</th>
+              <th>ราคา</th>
+              <th>สถานะการขาย</th>
+              <th>เปิด / ปิด สต็อก</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr ng-repeat="menu in menus">
+              <td style="color: var(--text-muted);">{{ menu.id }}</td>
+              <td>
+                <div class="stock-menu-item">
+                  <img ng-if="menu.image" ng-src="{{ menu.image }}" class="stock-thumb">
+                  <div ng-if="!menu.image" class="stock-thumb" style="display:flex;align-items:center;justify-content:center;">🍜</div>
+                  <div>
+                    <strong>{{ menu.name }}</strong>
+                    <div style="font-size: 0.78rem; color: var(--text-muted);">{{ menu.description }}</div>
+                  </div>
+                </div>
+              </td>
+              <td><span style="background: rgba(255,255,255,0.08); padding: 3px 8px; border-radius: 4px; font-size: 0.82rem;">{{ menu.category }}</span></td>
+              <td style="font-weight: 700; color: #fb923c;">฿{{ menu.price }}</td>
+              <td>
+                <span ng-if="menu.is_available" style="color: #4ade80; font-weight: 600;">● พร้อมขาย</span>
+                <span ng-if="!menu.is_available" style="color: #f87171; font-weight: 600;">● สินค้าหมด</span>
+              </td>
+              <td>
+                <label class="switch">
+                  <input type="checkbox" ng-checked="menu.is_available" ng-click="toggleMenuStatus(menu)">
+                  <span class="slider"></span>
+                </label>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- 6. Tab Content 3: History & Reports           -->
+    <!-- ============================================== -->
+    <section class="stock-table-card" ng-show="activeTab === 'history'">
+      <div class="history-controls">
+        <input type="text" 
+               class="dash-search-input" 
+               placeholder="🔍 ค้นหา Order ID, โต๊ะ, หรือชื่อลูกค้า..." 
+               ng-model="searchQuery">
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table class="stock-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>เวลาที่สั่ง</th>
+              <th>โต๊ะ / รูปแบบ</th>
+              <th>ลูกค้า</th>
+              <th>รายการอาหาร</th>
+              <th>ยอดรวม</th>
+              <th>สถานะ</th>
+              <th>การชำระเงิน</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr ng-repeat="order in orders | filter:filterHistory">
+              <td style="font-family: var(--font-heading); font-weight: 600; color: #38bdf8;">{{ order.order_id }}</td>
+              <td style="font-size: 0.85rem; color: var(--text-muted);">{{ order.timestamp }}</td>
+              <td><strong>{{ order.table_no }}</strong></td>
+              <td>{{ order.customer_name }}</td>
+              <td>
+                <div ng-repeat="item in order.items" style="font-size: 0.85rem;">
+                  {{ item.qty }}x {{ item.name }}
+                </div>
+              </td>
+              <td style="font-weight: 700; color: #4ade80;">฿{{ order.total_price }}</td>
+              <td>
+                <span ng-if="order.status === 'Pending'" style="color: #f59e0b;">🟡 รอดำเนินการ</span>
+                <span ng-if="order.status === 'Cooking'" style="color: #ea580c;">🟠 กำลังปรุง</span>
+                <span ng-if="order.status === 'Served'" style="color: #16a34a;">🟢 เสิร์ฟแล้ว</span>
+                <span ng-if="order.status === 'Completed'" style="color: #94a3b8;">⚪ เสร็จสิ้น</span>
+                <span ng-if="order.status === 'Cancelled'" style="color: #ef4444;">❌ ยกเลิก</span>
+              </td>
+              <td>
+                <span ng-if="order.payment_status === 'Paid'" style="color: #4ade80;">ชำระแล้ว</span>
+                <span ng-if="order.payment_status !== 'Paid'" style="color: #f59e0b;">ยังไม่ชำระ</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/config.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
